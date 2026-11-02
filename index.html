@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ビジュアルフーリエ方形波</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen p-4 flex flex-col items-center">
+<h1 class="text-xl font-bold text-cyan-300 mb-1">ビジュアルフーリエ方形波</h1>
+<p class="text-gray-400 text-xs mb-3">正弦波の重ね合わせで方形波を構成するアニメーション</p>
+
+<div class="flex flex-wrap gap-4 mb-3 items-center text-sm">
+  <div class="flex items-center gap-2">
+    <label for="harmonics" class="text-gray-300">倍音数:</label>
+    <input type="range" id="harmonics" min="1" max="16" value="5" step="1"
+      aria-label="倍音数スライダー"
+      class="w-32 accent-cyan-400">
+    <span id="harmVal" class="text-cyan-300 font-bold w-8">5</span>
+  </div>
+  <div class="flex items-center gap-2">
+    <label for="speed" class="text-gray-300">速度:</label>
+    <input type="range" id="speed" min="1" max="5" value="2" step="1"
+      aria-label="アニメーション速度スライダー"
+      class="w-24 accent-cyan-400">
+    <span id="speedVal" class="text-cyan-300 font-bold">x2</span>
+  </div>
+  <button id="playBtn" aria-label="再生/一時停止" onclick="togglePlay()"
+    class="bg-cyan-700 hover:bg-cyan-600 text-white py-1 px-5 rounded-full text-sm">
+    一時停止
+  </button>
+</div>
+
+<div id="formula" class="text-cyan-200 text-xs mb-3 font-mono px-2 text-center max-w-2xl"></div>
+
+<div class="flex gap-2 w-full max-w-4xl">
+  <canvas id="cEpi" aria-label="エピサイクル（回転する円）" class="rounded border border-gray-800"></canvas>
+  <canvas id="cWave" aria-label="フーリエ合成波形" class="rounded border border-gray-800"></canvas>
+</div>
+
+<div class="mt-2 text-gray-500 text-xs">
+  左: 回転する円（各倍音） | 右: 合成された方形波
+</div>
+
+<script>
+const EPI = document.getElementById("cEpi");
+const WAV = document.getElementById("cWave");
+const ctxE = EPI.getContext("2d");
+const ctxW = WAV.getContext("2d");
+
+const EW = 320, EH = 360, WW = 380, WH = 360;
+EPI.width=EW; EPI.height=EH;
+WAV.width=WW; WAV.height=WH;
+
+const COLORS = [
+  "#22d3ee","#f59e0b","#a78bfa","#34d399","#fb7185",
+  "#60a5fa","#fbbf24","#c084fc","#4ade80","#f472b6",
+  "#38bdf8","#fcd34d","#818cf8","#6ee7b7","#fda4af","#7dd3fc"
+];
+
+let t = 0;
+let playing = true;
+let numH = 5;
+let speedMult = 2;
+let waveHistory = [];
+const MAX_HIST = WW - 40;
+
+const harmSlider = document.getElementById("harmonics");
+const speedSlider = document.getElementById("speed");
+
+harmSlider.addEventListener("input", ()=>{
+  numH = parseInt(harmSlider.value);
+  document.getElementById("harmVal").textContent = numH;
+  waveHistory = [];
+  updateFormula();
+});
+
+speedSlider.addEventListener("input", ()=>{
+  speedMult = parseInt(speedSlider.value);
+  document.getElementById("speedVal").textContent = "x"+speedMult;
+});
+
+function togglePlay() {
+  playing = !playing;
+  document.getElementById("playBtn").textContent = playing ? "一時停止" : "再生";
+}
+
+function updateFormula() {
+  const terms = [];
+  for(let i=0;i<numH;i++) {
+    const n = 2*i+1;
+    terms.push(`(1/${n})sin(${n}ωt)`);
+  }
+  document.getElementById("formula").textContent =
+    `f(t) = (4/π) × [ ${terms.join(" + ")} ]`;
+}
+
+function getAmplitude(n, base) { return base / n; }
+
+// Draw epicycles, return tip position
+function drawEpicycles(ctx, cx, cy, t, n, base) {
+  let x = cx, y = cy;
+  for(let i=0;i<n;i++) {
+    const k = 2*i+1; // odd harmonic
+    const r = base / k;
+    const angle = k * t;
+    const nx = x + r * Math.cos(angle);
+    const ny = y + r * Math.sin(angle);
+
+    // Draw circle
+    ctx.strokeStyle = COLORS[i % COLORS.length] + "55";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI*2);
+    ctx.stroke();
+
+    // Draw radius arm
+    ctx.strokeStyle = COLORS[i % COLORS.length];
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(nx, ny);
+    ctx.stroke();
+
+    // Dot at tip
+    ctx.fillStyle = COLORS[i % COLORS.length];
+    ctx.beginPath();
+    ctx.arc(nx, ny, 2.5, 0, Math.PI*2);
+    ctx.fill();
+
+    x = nx; y = ny;
+  }
+  return {x, y};
+}
+
+function loop() {
+  requestAnimationFrame(loop);
+  if(playing) t += 0.015 * speedMult;
+
+  // --- Epicycle canvas ---
+  ctxE.fillStyle = "#050a14";
+  ctxE.fillRect(0,0,EW,EH);
+
+  const baseR = 90;
+  const cx = EW/2, cy = EH/2;
+  const tip = drawEpicycles(ctxE, cx, cy, t, numH, baseR);
+
+  // Draw line from tip to wave connector
+  ctxE.strokeStyle = "#64748b";
+  ctxE.lineWidth = 1;
+  ctxE.setLineDash([4,4]);
+  ctxE.beginPath();
+  ctxE.moveTo(tip.x, tip.y);
+  ctxE.lineTo(EW, tip.y);
+  ctxE.stroke();
+  ctxE.setLineDash([]);
+
+  // Tip dot
+  ctxE.fillStyle="#ffffff";
+  ctxE.beginPath();
+  ctxE.arc(tip.x, tip.y, 4,0,Math.PI*2);
+  ctxE.fill();
+
+  // --- Wave canvas ---
+  ctxW.fillStyle = "#050a14";
+  ctxW.fillRect(0,0,WW,WH);
+
+  // Add current y to history
+  if(playing) waveHistory.unshift(tip.y - cy);
+  if(waveHistory.length > MAX_HIST) waveHistory.pop();
+
+  const wcy = WH/2;
+  // Draw target square wave faintly
+  ctxW.strokeStyle="#1e3a3a";
+  ctxW.lineWidth=1;
+  ctxW.beginPath();
+  const sq_amp = baseR * (4/Math.PI);
+  // approximate square wave
+  for(let x=0;x<WW;x++) {
+    const tt = t - x * (2*Math.PI / MAX_HIST);
+    let sy = 0;
+    for(let i=0;i<16;i++) { const k=2*i+1; sy += Math.sin(k*tt)/k; }
+    sy *= (4/Math.PI) * baseR;
+    if(x===0) ctxW.moveTo(x, wcy + sy); else ctxW.lineTo(x, wcy + sy);
+  }
+  ctxW.stroke();
+
+  // Draw actual wave from history
+  ctxW.strokeStyle="#22d3ee";
+  ctxW.lineWidth=2;
+  ctxW.beginPath();
+  waveHistory.forEach((yv, i)=>{
+    const wx = i;
+    if(i===0) ctxW.moveTo(wx, wcy+yv); else ctxW.lineTo(wx, wcy+yv);
+  });
+  ctxW.stroke();
+
+  // Draw connector dot
+  ctxW.fillStyle="#ffffff";
+  ctxW.beginPath();
+  ctxW.arc(0, wcy+(waveHistory[0]||0), 5,0,Math.PI*2);
+  ctxW.fill();
+
+  // Center line
+  ctxW.strokeStyle="#1f2937";
+  ctxW.lineWidth=1;
+  ctxW.beginPath();
+  ctxW.moveTo(0,wcy); ctxW.lineTo(WW,wcy);
+  ctxW.stroke();
+
+  // Label
+  ctxW.fillStyle="#64748b";
+  ctxW.font="11px monospace";
+  ctxW.fillText("合成波形", 8, 16);
+
+  // Legend
+  for(let i=0;i<Math.min(numH,8);i++) {
+    const k=2*i+1;
+    ctxW.fillStyle=COLORS[i%COLORS.length];
+    ctxW.fillRect(8, WH-20-i*14, 14, 8);
+    ctxW.fillStyle="#9ca3af";
+    ctxW.fillText(`n=${k}`, 26, WH-13-i*14);
+  }
+}
+
+updateFormula();
+loop();
+</script>
+</body>
+</html>
